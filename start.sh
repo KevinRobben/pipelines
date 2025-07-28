@@ -151,7 +151,15 @@ if [[ "$MODE" == "setup" || "$MODE" == "full" ]]; then
 fi
 
 if [[ "$MODE" == "run" || "$MODE" == "full" ]]; then
+  # Add dev mode check for hot reloading
+  RELOAD_FLAG=""
+  if [ "$DEV_MODE" = "true" ]; then
+    echo "Development mode is enabled. Starting with --reload."
+    # Be explicit about watch directories for better compatibility, especially with Docker on Windows/Mac.
+    RELOAD_FLAG="--reload --reload-dir /app/pipelines --reload-dir /app"
+  fi
+
   echo "Running via Mode: $MODE"
-  uvicorn main:app --host "$HOST" --port "$PORT" --forwarded-allow-ips '*' --loop "$UVICORN_LOOP"
+  uvicorn main:app --host "$HOST" --port "$PORT" --forwarded-allow-ips '*' --loop "$UVICORN_LOOP" $RELOAD_FLAG
 fi
 
