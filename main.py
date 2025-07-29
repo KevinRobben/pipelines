@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict
 from typing import List, Union, Generator, Iterator
 
 
-from utils.pipelines.auth import bearer_security, get_current_user
+from utils.pipelines.auth import bearer_security, get_current_user, get_current_user_optional
 from utils.pipelines.main import get_last_user_message, stream_message_template
 from utils.pipelines.misc import convert_to_raw_url
 
@@ -29,7 +29,7 @@ import sys
 import subprocess
 
 
-from config import API_KEY, PIPELINES_DIR, LOG_LEVELS
+from config import API_KEY, PIPELINES_DIR, LOG_LEVELS, WEBUI_SECRET_KEY, ENABLE_FORWARD_JWT_TOKEN
 
 if not os.path.exists(PIPELINES_DIR):
     os.makedirs(PIPELINES_DIR)
@@ -284,7 +284,7 @@ async def check_url(request: Request, call_next):
 
 @app.get("/v1/models")
 @app.get("/models")
-async def get_models(user: str = Depends(get_current_user)):
+async def get_models(user: dict = Depends(get_current_user_optional)):
     """
     Returns the available pipelines
     """
@@ -658,7 +658,10 @@ async def filter_outlet(pipeline_id: str, form_data: FilterForm):
 
 @app.post("/v1/chat/completions")
 @app.post("/chat/completions")
-async def generate_openai_chat_completion(form_data: OpenAIChatCompletionForm):
+async def generate_openai_chat_completion(
+    form_data: OpenAIChatCompletionForm,
+    user=Depends(get_current_user_optional)
+):
     messages = [message.model_dump() for message in form_data.messages]
     user_message = get_last_user_message(messages)
 
@@ -693,6 +696,7 @@ async def generate_openai_chat_completion(form_data: OpenAIChatCompletionForm):
                     model_id=pipeline_id,
                     messages=messages,
                     body=form_data.model_dump(),
+                    __user__=user,
                 )
                 logging.info(f"stream:true:{res}")
 
@@ -713,7 +717,6 @@ async def generate_openai_chat_completion(form_data: OpenAIChatCompletionForm):
 
                         try:
                             line = line.decode("utf-8")
-                            logging.info(f"stream_content:Generator:{line}")
                         except:
                             pass
 
@@ -749,6 +752,7 @@ async def generate_openai_chat_completion(form_data: OpenAIChatCompletionForm):
                 model_id=pipeline_id,
                 messages=messages,
                 body=form_data.model_dump(),
+                __user__=user,
             )
             logging.info(f"stream:false:{res}")
 
@@ -787,3 +791,29 @@ async def generate_openai_chat_completion(form_data: OpenAIChatCompletionForm):
                 }
 
     return await run_in_threadpool(job)
+
+
+####################################
+# Test and Health Endpoints
+####################################
+
+@app.get("/test-auth")
+async def test_auth(user=Depends(get_current_user)):
+    """Test endpoint to verify authentication works"""
+    return {
+        "message": "Authentication successful!",
+        "user": user,
+        "timestamp": time.time(),
+        "jwt_forwarding_enabled": ENABLE_FORWARD_JWT_TOKEN
+    }
+
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint - no auth required"""
+    return {
+        "status": "healthy",
+        "timestamp": time.time(),
+        "jwt_forwarding_enabled": ENABLE_FORWARD_JWT_TOKEN,
+        "webui_secret_configured": bool(WEBUI_SECRET_KEY and WEBUI_SECRET_KEY != "t0p-s3cr3t")
+    }
